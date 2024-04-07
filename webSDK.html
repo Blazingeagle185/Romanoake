@@ -1,0 +1,41 @@
+<!-- presst ctrl+shift+v to preview html page-->
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Romanoake SDK Test</title>
+    </head>
+    <body>
+        <h1> Romanoake Player </h1>
+        <button id="togglePlay">Play</button>
+        <script src="https://sdk.scdn.co/spotify-player.js"></script>
+        <script>
+            window.onSpotifyWebPlaybackSDKReady = () => {
+                const token = 'BQAb-ee-xLdgvRrM3UFwAn0Y0YjzGh4XL0UXAgttnAwTe1N3JJPIPSlnfbWx9o2ea9cL03GIvyr4kwGSpSalUwSn9uTHCUxVRB3PFXz0iOaIQnkzxw405NCXKJKCxMa_1cjh3lIERMUxEFoeYh59wCIFlUjNEx5WdbLGfRVeFye3Y8BoOLa3jP00GASeWUOx_I9axOx0q0O2MhEo3-VeoUOBf643';
+                const player = new Spotify.Player({
+                    name: 'Romanoake SDK Player Tester',
+                    get0AuthToken: cb => { cb(token);},
+                    volume: 0.5
+                });
+                player.addListener('ready', ({device_id}) => {
+                    console.log('Ready with Device ID', device_id);
+                });
+                player.addListener('not_ready', ({device_id}) => {
+                    console.log('Device ID has gone offline', dvice_id);
+                });
+                player.addListener('initialization_error', ({ message }) => {
+                    console.error(message);
+                });
+                player.addListener('authentication_error', ({ message }) => {
+                    console.error(message);
+                });
+                player.addListener('account_error', ({ message }) => {
+                    console.error(message);
+                });
+                player.connect();
+                document.getElementById('togglePlay').onclick = function() {
+                    player.togglePlay();
+                };
+            }
+        </script>
+    </body>
+</html>
