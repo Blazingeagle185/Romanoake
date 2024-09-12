@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Song and Artist Input</title>
+    <style>
+        #lyrics {
+            white-space: pre-wrap; /* Preserves whitespace and line breaks */
+            font-family: Arial, sans-serif;
+            margin-top: 20px;
+        }
+        .hidden{
+            display: none;
+        }
+        .visible{
+            display: inline-block;
+        }
+    </style>
+</head>
+<body>
+    <h1>Romanoake Test</h1>
+    <input type="text" id="songInput" placeholder="Enter song name">
+    <input type="text" id="artistInput" placeholder="Enter artist name">
+    <input type="text" id="authentication code" class = "hidden" placehoder="Enter spotify authentication">
+    <button onclick="sendData()">Submit</button>
+    <br>
+    <button onclick="playMusic(), displayLyrics()" class = "hidden" id="playMusic">Play</button>
+    <br>
+    <pre id="lyrics"></pre>
+
+    <script>
+        let lyricsData = [];
+        let currentIndex = 0;
+        let isTrackPlaying = false;
+        let songData = {}; 
+        let lyricsExist = false;
+        let previousTime = 0.0;
+
+        const lyricsDiv = document.getElementById('lyrics');
+
+        async function sendData() {
+            const song = document.getElementById('songInput').value;
+            const artist = document.getElementById('artistInput').value;
+            const authorizationCode = document.getElementById("authentication code");
+
+            console.log('Song:', song);
+            console.log('Artist:', artist);
+
+            try {
+                const response = await fetch('http://127.0.0.1:5000/search_lyrics', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ song: song, artist: artist }),
+                });
+                data = await response.json();
+                console.log('Response status:', response.status);
+
+                if (response.ok && data.song_lyrics !== undefined) {
+                    lyricsData = data;
+                    console.log("Data", lyricsData);
+                    lyricsExist = true;
+                    document.getElementById('playMusic').classList.remove('hidden');
+                } 
+
+                else if(response.ok && data.no_lyrics !== undefined) {
+                    lyricsDiv.innerText = 'Please enter authorization code to continue';
+                    document.getElementById("authentication code").classList.remove("hidden");
+                    document.getElementById("retrieve").classList.remove("hidden");
+                    retrieveLyrics(authorzationCode);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                lyricsDiv.innerText = 'An error occurred while fetching the data.';
+            }
+        }
+        async function retrieveLyrics(authorizationCode){
+            try{
+                const response = await fetch('http://127.0.0.1:5000/download_lyrics', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ auth: authorizationCode}),
+                });
+                const data = await response.json();
+            } catch (error){
+                console.error('Error downloading lyrics', error);
+            }
+        }
+        async function playMusic(){
+            try{
+                const response = await fetch('http://127.0.0.1:5000/playTrack');
+                const data = await response.json();
+                console.log("Data", data);
+                if (data.success !== undefined ){
+                  isTrackPlaying = true;
+                  currentIndex = 0;
+                }
+            } catch(error){
+                console.error('Error playing track', error);
+                lyricsDiv.innerText = "Could not start playback";
+            }
+        }
+ 
+        async function displayLyrics() {
+            try {
+                const response = await fetch('http://127.0.0.1:5000/timestamp');
+                const data = await response.json();
+                console.log("Full response data: ", data);
+                const currentTime = data.timestamp; 
+                    //const currentTime = parseInt(data.progress_ms, 10);
+                if (data.timestamp !== undefined)
+                {
+                    console.log('Current time: ', currentTime);
+                    if (currentIndex < lyricsData.length && currentTime >= lyricsData[currentIndex].timestamp) {
+                        lyricsDiv.innerText = lyricsData[currentIndex].lyrics;
+                        currentIndex++;
+                    }
+                }
+                else {
+                    console.error('No progress_ms found:', data.error);
+                    lyricsDiv.innerText = "Help";
+                }
+            } catch (error) {
+                console.error('Error fetching progress:', error);
+                lyricsDiv.innerText = "Error displaying lyrics";
+            }
+            previousTime = currentTime;
+        }
+        if (currentIndex > 1){
+            setInterval(displayLyrics, lyricsData[currentIndex].timestamp - lyricsData[currentIndex-1].timestamp); 
+        }
+        window.onload = function(){
+            displayLyrics();
+        }; 
+    </script>
+</body>
+</html>

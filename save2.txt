@@ -1,0 +1,174 @@
+import spotipy
+import os
+import requests
+import string
+from unidecode import unidecode
+from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
+from dotenv import load_dotenv
+from spotipy.oauth2 import SpotifyOAuth
+import logging
+import time
+import re
+from datetime import datetime, timedelta
+import downloader
+
+
+load_dotenv()
+
+app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
+
+scope = "user-read-playback-state,user-modify-playback-state"
+
+musixmatch = os.getenv("MUSIXMATCH_KEY")
+
+track_uri = ""
+
+
+sp = spotipy.Spotify(auth_manager=SpotifyOAuth(client_id=os.getenv("CLIENT_ID"),
+                                               client_secret=os.getenv("CLIENT_SECRET"),
+                                               redirect_uri="http://localhost:1234",
+                                               scope=scope))
+
+logging.basicConfig(level=logging.DEBUG)
+
+data = {}
+
+def sanitize_filename(filename):
+    valid_chars = "-_.() %s%s" % (string.ascii_letters, string.digits)
+    return ''.join(c if c in valid_chars else '_' for c in filename)
+
+def parselyrics(artist_name, track_num, album_name, release_year, track_name):
+    lyrics_data = []
+    track_file = (str(track_num) + ". " + track_name)
+    album_folder = (album_name + " (" + release_year + ")")
+    file_path = ("C:/Users/mirun/projects/helloworld/romanoake/romanoake2/Lyrics/" + artist_name + "/" + album_folder + "/" + track_file + ".lrc")
+
+    with open(file_path, 'r', encoding='utf-8') as file:
+        lines = file.readlines()
+
+    for line in lines:
+        match = re.match(r'\[(\d+):(\d+\.\d+)\](.*)', line)
+        if match:
+            minutes = int(match.group(1))
+            seconds = float(match.group(2))
+            timestamp = minutes * 60 * 1000 + int(seconds*1000)
+            lyrics = match.group(3).strip()
+            lyrics_data.append({'timestamp': timestamp, 'lyrics': lyrics})
+
+    return lyrics_data
+
+'''
+def get_lyrics(track_name, artist_name):
+    url2 = "https://api.musixmatch.com/ws/1.1/track.search"
+    params = {
+        "q_track": track_name,
+        "q_artist": artist_name,
+        "apikey": musixmatch,
+    }
+    response = requests.get(url2, params=params)
+    data = response.json()
+    if data["message"]["body"]["track_list"]:
+        musixmatch_id = data["message"]["body"]["track_list"][0]["track"]["track_id"]
+    else:
+        # Handle case where no tracks are found
+        musixmatch_id = "n"
+    # Make a request to Musixmatch API to get lyrics
+    response = requests.get(
+        'https://api.musixmatch.com/ws/1.1/track.lyrics.get',
+        params={'track_id': musixmatch_id, 'apikey': musixmatch}
+    )
+    data = response.json()
+    # Extract lyrics from the response
+    if 'message' in data and 'body' in data['message'] and 'lyrics' in data['message']['body']:
+        return unidecode(data['message']['body']['lyrics']['lyrics_body'])
+    else:
+        return None
+'''
+
+@app.route('/')
+def index():
+    return send_from_directory('.', 'flasktest.html')
+
+@app.route('/search_lyrics', methods=['POST'])
+def search_lyrics():
+    global data, track_uri
+    logging.debug("Received request: %s", request.json)
+    response = request.json
+    song = response.get('song')
+    #artist = data.get('artist')
+
+    if not song:
+        return jsonify({'error': 'No song provided'}), 400
+
+    result = sp.search(song)
+    logging.debug("Spotify search result: %s", result)
+    data = result['tracks']['items'][0]
+
+
+    if not result['tracks']['items']:
+        return jsonify({'error': 'No track found'}), 404
+    
+    track_uri = result['tracks']['items'][0]['uri']
+    song_name = result['tracks']['items'][0]['name']
+    artists = result['tracks']['items'][0]['artists']
+    artist_for_function = result['tracks']['items'][0]['artists'][0]['name']
+    song_name = sanitize_filename(result['tracks']['items'][0]['name'])
+    album_name = sanitize_filename(result['tracks']['items'][0]['album']['name'])
+    track_number = result['tracks']['items'][0]['track_number']
+    #artist_names = [artist['name'] for artist in artists]
+    #joined_artist_names = ', '.join(artist_names)
+
+    release_date = result['tracks']['items'][0]['album']['release_date']
+
+    release_date = release_date.replace('-', '/')
+    release_year = release_date[:4]
+
+    lyrics = parselyrics(artist_for_function, track_number, album_name, release_year, song_name)
+    if not lyrics:
+        response = {
+            'no_lyrics': False
+        }
+        return jsonify(response)
+    
+    logging.debug("Lyrics: %s", lyrics)
+    #progress = sp.current_playback()
+    #progress_ms = progress['progress_ms']
+    return jsonify({'song_lyrics': lyrics})
+
+@app.route('/timestamp', methods = ['GET'])
+def timestamp():
+    progress = sp.current_playback()
+    progress_ms = progress['progress_ms']
+    print(progress_ms)
+    progress_ms = int(progress_ms)
+    return jsonify({'timestamp': progress_ms})
+
+@app.route('/download_lyrics', methods = ['POST'])
+def download_lyrics():
+    global data
+    logging.debug("Received request: %s", request.json)
+    response = request.json
+    auth = response.get('auth')
+    downloader.authorization = auth
+    downloader.current_track = data
+    with open('converter.py') as f:
+        code = f.read()
+    exec(code)
+    return jsonify({'success': 'success'})
+
+@app.route('/playTrack', methods = ['GET'])
+def play():
+    global track_uri
+    res = sp.devices()
+    devices = res['devices']
+    logging.debug("Active devices: %s", devices)
+    if devices:
+        sp.start_playback(uris=[track_uri])
+        return jsonify({'success': 'playback started'})
+    else:
+        return jsonify({'error': 'No active devices found'}), 404
+
+if __name__ == '__main__':
+    app.run(debug=True)
